@@ -1,0 +1,52 @@
+name: build-push-icr
+
+on:
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+env:
+  GITHUB_SHA: ${{ github.sha }}
+  REGISTRY_URL: us.icr.io
+  ICR_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+  ICR_IMAGE: ${{ vars.REGISTRY_IMAGE }}
+jobs:
+  build-push-update:
+    name: Build image
+    runs-on: ubuntu-latest
+    outputs:
+        image_url: ${{ steps.push-to-icr.outputs.registry-paths }}
+
+    steps:
+    - name: Clone the repository
+      uses: actions/checkout@v2
+
+    - name: Set short SHA
+      run: echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-8)" >> $GITHUB_ENV
+
+    - name: Buildah Action
+      id: build-image
+      uses: redhat-actions/buildah-build@v2
+      with:
+        image: ${{ env.ICR_NAMESPACE }}/${{ env.ICR_IMAGE }}
+        tags: latest ${{ env.SHORT_SHA }}
+        containerfiles: |
+          ./Dockerfile
+
+    - name: Log in to the IBM Cloud Container registry
+      uses: redhat-actions/podman-login@v1
+      with:
+        registry: ${{ env.REGISTRY_URL }}
+        username: iamapikey
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+
+    - name: Push to IBM Cloud Container Repository
+      id: push-to-icr
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build-image.outputs.image }}
+        tags: ${{ steps.build-image.outputs.tags }}
+        registry: ${{ env.REGISTRY_URL }}
+      
+    - name: Print image url
+      run: echo "Image pushed to ${{ steps.push-to-icr.outputs.registry-paths }}"
